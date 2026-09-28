@@ -1,0 +1,93 @@
+# oncue
+
+**An attention queue for your AI coding agents.**
+
+When you run many Claude Code / Paseo sessions at once, the hard part is not
+watching them work. It is noticing which ones stopped and are waiting on *you*.
+oncue puts those sessions at the top, most urgent first, and tells you why each
+one is waiting.
+
+```
+ oncue   Needs you 4 · Working 3 · Dormant 12   22:57:01
+┌ Needs you (4) ─────────────────────────────────────────────────────────────┐
+│? question  3m  api (feat/threads)   core-api#256  Design the thread feed   │
+│! permit    1m  infra                               Add KV scope to token   │
+│⏸ limit     4h  app (fix/i18n)                      Fill missing strings    │
+│✓ done      2m  chat                 chat#266       Device approval flow    │
+└────────────────────────────────────────────────────────────────────────────┘
+┌ Working (3) ───────────────────────────────────────────────────────────────┐
+│● working       web                                 Landing copy — Bash pnpm│
+└────────────────────────────────────────────────────────────────────────────┘
+┌ Detail ────────────────────────────────────────────────────────────────────┐
+│Design the thread feed                                                      │
+│claude · ~/work/api · feat/threads · paseo 6985aed                          │
+│Which host should receive cross-service ingest?                             │
+│Options: ingest.example.com | api.example.com                               │
+└────────────────────────────────────────────────────────────────────────────┘
+```
+
+## Why a queue
+
+A process monitor such as [abtop](https://github.com/graykode/abtop) answers
+"what is running?". oncue answers "what is waiting on me, and since when?":
+
+| Reason | Meaning |
+|---|---|
+| `question` | The agent asked a question (`AskUserQuestion`) and is blocked. |
+| `permit` | A tool call is waiting for approval. |
+| `plan` | A plan is waiting for approval. |
+| `error` | The agent stopped with an error. |
+| `limit` | The account hit a usage limit; shows when it resets. |
+| `done` | The turn finished and nobody has read the result yet. |
+| `idle` | The result was read but not answered. |
+
+Finished turns that sit longer than `dormant_after_minutes` move to the dormant
+list (`d` to show). Questions and approvals never go dormant.
+
+oncue is read-only. It never writes to agent state and needs no API keys.
+
+## Install
+
+```bash
+cargo install --git https://github.com/ph8nt0m/oncue
+```
+
+## Usage
+
+```bash
+oncue            # TUI
+oncue --once     # print one snapshot and exit
+oncue --json     # one JSON snapshot, for scripts
+oncue --lang ko  # UI language (en, ko); defaults to LANG
+```
+
+Keys: `j`/`k` move, `g`/`G` first/last, `d` toggle dormant, `r` refresh, `q` quit.
+
+## Sources
+
+| Source | What oncue reads |
+|---|---|
+| Claude Code | `~/.claude/sessions/*.json` for live sessions, the transcript tail for why they wait, `pr-link` entries for PRs. Also `~/.claude-*`, `~/.claude-profiles/*`, `$CLAUDE_CONFIG_DIR`. |
+| Paseo | `~/.paseo/agents/**.json` for titles and attention flags, `paseo permit ls` for pending approvals. |
+
+## Configuration
+
+`~/.config/oncue/config.toml` (all optional):
+
+```toml
+language = "ko"                    # en | ko; empty = LANG
+claude_config_dirs = ["~/.claude-work"]
+paseo = true
+dormant_after_minutes = 360
+interval_secs = 2
+```
+
+## Roadmap
+
+See [docs/design.md](docs/design.md). Next up: GitHub PR state (checks, review,
+mergeable) and Linear issues in the queue, per-account usage limits, jumping to a
+session, and notifications.
+
+## License
+
+MIT
