@@ -15,6 +15,33 @@ pub struct Config {
     pub dormant_after_minutes: u64,
     /// Refresh interval in seconds.
     pub interval_secs: u64,
+    pub github: GitHubConfig,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct GitHubConfig {
+    /// Look up PR state with the `gh` CLI.
+    pub enabled: bool,
+    /// Also list your open PRs that no live session owns.
+    pub my_prs: bool,
+    pub interval_secs: u64,
+    /// PRs untouched for longer than this stop raising attention.
+    pub stale_after_days: u64,
+    /// Limit your own PRs to these users or orgs. Empty means all.
+    pub owners: Vec<String>,
+}
+
+impl Default for GitHubConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            my_prs: true,
+            interval_secs: 90,
+            stale_after_days: 3,
+            owners: vec![],
+        }
+    }
 }
 
 impl Default for Config {
@@ -25,6 +52,7 @@ impl Default for Config {
             paseo: true,
             dormant_after_minutes: 6 * 60,
             interval_secs: 2,
+            github: GitHubConfig::default(),
         }
     }
 }

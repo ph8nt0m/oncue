@@ -17,9 +17,9 @@ and wait time, with enough detail to act without opening the session.
   sessions are secondary; dormant ones are hidden by default.
 - **Say why.** Every queued item has a reason (question, permit, plan, error,
   limit, done, idle) and the text needed to act on it.
-- **Read-only and local.** oncue reads agent state from disk and local CLIs. It
-  never writes to agent directories. Network sources (GitHub, Linear) are opt-in
-  and use the user's existing CLI auth.
+- **Read-only.** oncue reads agent state from disk and local CLIs and never
+  writes to agent directories. Network sources use the user's existing CLI auth
+  (`gh`), can be turned off in config, and run on background threads.
 - **Cheap to run.** One refresh should stay well under a second with dozens of
   sessions; transcripts are read from the tail, never parsed whole.
 
@@ -33,7 +33,9 @@ by urgency, and the queue sorts by that order, then by the longest wait.
 | Question | Last unanswered `tool_use` is `AskUserQuestion`; or a Paseo permit for it. |
 | Permission | A pending Paseo permit for any other tool. |
 | Plan | Last unanswered `tool_use` is `ExitPlanMode`. |
+| Merge | A linked or own PR is `Ready`: checks passed, no conflict, no requested changes, no unresolved threads. |
 | Error | Paseo `attentionReason = error`; or the last assistant entry is an API error. |
+| Blocked | A linked or own PR is in `Conflict`, `ChecksFailed`, `ChangesRequested`, `Unresolved`, or `Behind`. |
 | Limited | The last assistant entry is an API error with `error = rate_limit`; `quotaLimits.resetsAt` gives the reset. |
 | Unread | Session idle after a normal reply, and Paseo (if present) still flags it. |
 | Idle | Session idle and the user already opened it (Paseo cleared the flag). |
@@ -69,13 +71,30 @@ reasons never do.
   that row; any other active agent (Codex, other providers, closed sessions)
   becomes its own row.
 
+### GitHub
+
+- Linked PRs come from `pr-link` transcript entries. Own PRs come from a search
+  `is:pr is:open author:@me updated:>=<now - stale_after_days>` (optionally
+  `user:<owner>`), then details in chunks of 12 through `nodes(ids:)`; larger
+  requests time out on GitHub's side.
+- PR state is checked in owner priority order: merged, closed, draft, conflict,
+  checks failed, checks pending, changes requested, unresolved threads, behind,
+  ready. `BLOCKED` with green checks counts as ready: branch rules may still want
+  an approval, but that is the owner's call.
+- A session that is not working and has a fresh PR needing attention takes the
+  PR's reason when it is more urgent than its own. Own PRs without a live
+  session become rows only when fresh and either needing attention (queue) or
+  running checks (working list).
+- The TUI fetches on a background thread every `interval_secs` and picks up
+  newly linked PRs within about two seconds. `--once`/`--json` fetch inline.
+
+`paseo permit ls` takes 2-5 s, so the TUI also polls it on a background thread.
+
 ## Roadmap
 
 1. **Local queue** (v0.1): Claude Code + Paseo, TUI, `--once`, `--json`, en/ko.
-2. **GitHub**: status of the PRs sessions opened (checks, review decision,
-   mergeable, unresolved threads) via `gh`. New queue reasons: `ready to merge`,
-   `checks failed`, `changes requested`. Also the user's open PRs that no session
-   owns.
+2. **GitHub** (v0.2): PR state for linked and own PRs; `merge` and `blocked`
+   reasons.
 3. **Linear**: issue keys from branch names, PR titles, and prompts (configurable
    pattern such as `[A-Z]+-\d+`); issue state next to each session; warn when two
    live sessions work on the same issue or branch.
@@ -83,8 +102,11 @@ reasons never do.
    and Codex profile, shown in the header, with the reset time. The source needs
    a design decision: a statusline hook (no credentials, only updates while a
    session renders) or the usage endpoint behind an explicit opt-in.
-5. **Act from the queue**: jump to the session (tmux, iTerm2, Paseo), send a
+5. **Background waits**: a session that ended its turn while background tasks
+   (CI polling, subagents) still run is idle to Claude Code but not waiting on
+   the user. Detect pending background tasks and keep it in the working list.
+6. **Act from the queue**: jump to the session (tmux, iTerm2, Paseo), send a
    quick reply through `paseo send`, desktop notifications when the queue grows,
    Codex CLI and OpenCode collectors.
-6. **Release**: cargo-dist binaries, Homebrew tap, crates.io, a `--demo` mode with
+7. **Release**: cargo-dist binaries, Homebrew tap, crates.io, a `--demo` mode with
    synthetic data for screenshots.

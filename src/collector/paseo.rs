@@ -12,9 +12,11 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-const PERMIT_TIMEOUT: Duration = Duration::from_secs(4);
+/// `paseo permit ls` starts Node and asks the daemon; 2-5 s is normal.
+const PERMIT_TIMEOUT: Duration = Duration::from_secs(12);
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -81,9 +83,41 @@ pub fn agents(home: &Path) -> Vec<Agent> {
         .collect()
 }
 
+pub type PermitMap = HashMap<String, Vec<Permit>>;
+
+/// Keeps the latest `paseo permit ls` result fresh on a background thread, so
+/// the 2-second local refresh never waits on the Paseo CLI.
+#[derive(Clone, Default)]
+pub struct PermitWatcher {
+    latest: Arc<Mutex<Option<(PermitMap, Instant)>>>,
+}
+
+impl PermitWatcher {
+    pub fn spawn() -> Self {
+        let watcher = Self::default();
+        let this = watcher.clone();
+        std::thread::spawn(move || {
+            loop {
+                if let Some(map) = permits() {
+                    *this.latest.lock().unwrap() = Some((map, Instant::now()));
+                }
+                std::thread::sleep(Duration::from_millis(500));
+            }
+        });
+        watcher
+    }
+
+    /// The latest result, or `None` if nothing succeeded in the last 30 s.
+    pub fn latest(&self) -> Option<PermitMap> {
+        let guard = self.latest.lock().unwrap();
+        let (map, at) = guard.as_ref()?;
+        (at.elapsed() < Duration::from_secs(30)).then(|| map.clone())
+    }
+}
+
 /// Pending permission requests keyed by agent id. `None` when the CLI is
 /// missing or the daemon did not answer in time.
-pub fn permits() -> Option<HashMap<String, Vec<Permit>>> {
+pub fn permits() -> Option<PermitMap> {
     let mut child = Command::new("paseo")
         .args(["permit", "ls", "--json"])
         .stdin(Stdio::null())

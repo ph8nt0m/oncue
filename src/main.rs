@@ -33,7 +33,7 @@ fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let config = Config::load()?;
     let lang = Lang::detect(args.lang.as_deref().unwrap_or(&config.language));
-    let collector = Collector::new(&config);
+    let collector = Collector::new(&config, !(args.json || args.once));
 
     if args.json {
         println!("{}", serde_json::to_string_pretty(&collector.collect())?);

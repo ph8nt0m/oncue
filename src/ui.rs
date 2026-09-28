@@ -1,5 +1,5 @@
 use crate::i18n::{Lang, age};
-use crate::model::{Attention, Session, Snapshot, State};
+use crate::model::{Attention, PrLink, Session, Snapshot, State};
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -119,9 +119,13 @@ pub fn draw(f: &mut Frame, app: &App) {
         }));
     if queue.is_empty() {
         f.render_widget(
-            Paragraph::new(t.nothing_waiting)
-                .style(Style::new().fg(Color::DarkGray))
-                .block(queue_block),
+            Paragraph::new(if app.snapshot.is_some() {
+                t.nothing_waiting
+            } else {
+                t.loading
+            })
+            .style(Style::new().fg(Color::DarkGray))
+            .block(queue_block),
             queue_area,
         );
     } else {
@@ -207,17 +211,7 @@ fn draw_table(f: &mut Frame, area: Rect, app: &App, rows: &[&Session], block: Bl
                 Some(b) if b != "HEAD" => format!("{} ({b})", s.project),
                 _ => s.project.clone(),
             };
-            let pr = s
-                .prs
-                .last()
-                .map(|p| {
-                    format!(
-                        "{}#{}",
-                        p.repo.rsplit('/').next().unwrap_or(&p.repo),
-                        p.number
-                    )
-                })
-                .unwrap_or_default();
+            let pr = headline_pr(s).map(|p| p.short()).unwrap_or_default();
             let what = match (&s.state, &s.activity) {
                 (State::Working, Some(a)) => format!("{}  — {a}", s.title),
                 _ => s.title.clone(),
@@ -290,19 +284,7 @@ fn draw_detail(f: &mut Frame, area: Rect, app: &App) {
             s.title.clone(),
             Style::new().add_modifier(Modifier::BOLD),
         )),
-        Line::from(Span::styled(
-            format!(
-                "{} · {} · {}{}",
-                s.agent,
-                s.cwd.display(),
-                s.branch.as_deref().unwrap_or("-"),
-                s.paseo_id
-                    .as_deref()
-                    .map(|id| format!(" · paseo {}", &id[..id.len().min(7)]))
-                    .unwrap_or_default(),
-            ),
-            Style::new().fg(Color::DarkGray),
-        )),
+        Line::from(Span::styled(meta_line(s), Style::new().fg(Color::DarkGray))),
     ];
     if let Some(d) = s.detail.as_deref().or(s.activity.as_deref()) {
         lines.push(Line::from(Span::styled(
@@ -330,12 +312,23 @@ fn draw_detail(f: &mut Frame, area: Rect, app: &App) {
         )));
     }
     if !s.prs.is_empty() {
-        let prs: Vec<String> = s
-            .prs
-            .iter()
-            .map(|p| format!("{}#{}", p.repo, p.number))
-            .collect();
-        lines.push(Line::from(format!("{}: {}", t.prs, prs.join(", "))));
+        let mut spans = vec![Span::raw(format!("{}: ", t.prs))];
+        for (i, p) in s.prs.iter().enumerate() {
+            if i > 0 {
+                spans.push(Span::raw(", "));
+            }
+            spans.push(Span::raw(p.short()));
+            if let Some(st) = p.state {
+                let color = st
+                    .attention()
+                    .map_or(Color::DarkGray, |a| state_color(&State::NeedsYou(a)));
+                spans.push(Span::styled(
+                    format!(" {}", app.lang.pr_state(st)),
+                    Style::new().fg(color),
+                ));
+            }
+        }
+        lines.push(Line::from(spans));
     }
     f.render_widget(
         Paragraph::new(lines).wrap(Wrap { trim: true }).block(block),
@@ -343,12 +336,43 @@ fn draw_detail(f: &mut Frame, area: Rect, app: &App) {
     );
 }
 
+/// `agent · cwd · branch · paseo id`, skipping parts that are empty.
+fn meta_line(s: &Session) -> String {
+    let cwd = s.cwd.display().to_string();
+    let paseo = s
+        .paseo_id
+        .as_deref()
+        .map(|id| format!("paseo {}", &id[..id.len().min(7)]));
+    [
+        Some(s.agent.clone()),
+        (!cwd.is_empty()).then_some(cwd),
+        s.branch.clone(),
+        paseo,
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join(" · ")
+}
+
+/// The PR to show in the list: the most urgent open one, else the newest.
+fn headline_pr(s: &Session) -> Option<&PrLink> {
+    s.prs
+        .iter()
+        .filter_map(|p| Some((p.state?.attention()?, p)))
+        .min_by_key(|(a, _)| *a)
+        .map(|(_, p)| p)
+        .or(s.prs.last())
+}
+
 pub fn icon(state: &State) -> &'static str {
     match state {
         State::NeedsYou(Attention::Question) => "?",
         State::NeedsYou(Attention::Permission) => "!",
         State::NeedsYou(Attention::Plan) => "≡",
+        State::NeedsYou(Attention::Merge) => "↗",
         State::NeedsYou(Attention::Error) => "✗",
+        State::NeedsYou(Attention::Blocked) => "⊘",
         State::NeedsYou(Attention::Limited) => "⏸",
         State::NeedsYou(Attention::Unread) => "✓",
         State::NeedsYou(Attention::Idle) => "·",
@@ -362,6 +386,8 @@ fn state_color(state: &State) -> Color {
         State::NeedsYou(Attention::Question) => Color::Magenta,
         State::NeedsYou(Attention::Permission | Attention::Error) => Color::Red,
         State::NeedsYou(Attention::Plan) => Color::Cyan,
+        State::NeedsYou(Attention::Merge) => Color::LightGreen,
+        State::NeedsYou(Attention::Blocked) => Color::LightRed,
         State::NeedsYou(Attention::Limited) => Color::Blue,
         State::NeedsYou(Attention::Unread) => Color::Yellow,
         State::NeedsYou(Attention::Idle) => Color::Gray,
@@ -398,6 +424,7 @@ mod tests {
                 repo: "o/r".into(),
                 number: 7,
                 url: String::new(),
+                state: Some(crate::model::PrState::Ready),
             }],
         }
     }
@@ -429,7 +456,7 @@ mod tests {
         assert_eq!(app.selected.as_deref(), Some("q"));
         let screen = render(&app);
         assert!(screen.contains("질문"));
-        assert!(screen.contains("o/r#7"));
+        assert!(screen.contains("r#7머지가능"));
         app.move_by(1);
         assert_eq!(app.selected.as_deref(), Some("w"));
         app.move_by(5);

@@ -22,7 +22,8 @@ src/
 └── collector/
     ├── mod.rs           # runs collectors, merges, applies dormancy
     ├── claude.rs        # Claude Code sessions + transcript tail
-    └── paseo.rs         # Paseo agents + pending permits
+    ├── github.rs        # PR state via gh GraphQL, background cache
+    └── paseo.rs         # Paseo agents + pending permits (background poll)
 ```
 
 ## Rules
@@ -30,8 +31,8 @@ src/
 - oncue is read-only toward agents. Never write to `~/.claude*`, `~/.paseo`, or
   any other agent directory. Settings changes (for example a hook installer) must
   be an explicit subcommand the user runs.
-- No network access by default. GitHub and Linear go through the user's `gh` and
-  API-key setup, opt-in via config.
+- Network access only through the user's own CLI auth (`gh`), on a background
+  thread in the TUI, and switchable off in config. Never ask for or store tokens.
 - Tests use synthetic fixtures only. Never commit real transcripts, session
   files, paths, or names from a real machine.
 - A new `Attention` variant needs: its place in the enum order (urgency), an

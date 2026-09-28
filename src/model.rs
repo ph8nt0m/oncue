@@ -12,8 +12,13 @@ pub enum Attention {
     Permission,
     /// A plan is waiting for approval (`ExitPlanMode`).
     Plan,
+    /// A pull request passed checks and only needs the merge decision.
+    Merge,
     /// The agent stopped with an error.
     Error,
+    /// A pull request is stuck: failing checks, conflicts, requested changes,
+    /// unresolved threads, or behind its base.
+    Blocked,
     /// The account hit a usage limit; the session can resume after the reset.
     Limited,
     /// The agent finished its turn and nobody has looked at the result yet.
@@ -39,6 +44,8 @@ pub enum Host {
     Terminal,
     /// An agent managed by the Paseo daemon.
     Paseo,
+    /// A pull request with no live session behind it.
+    GitHub,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -74,6 +81,48 @@ pub struct PrLink {
     pub repo: String,
     pub number: u64,
     pub url: String,
+    /// Filled in by the GitHub collector.
+    pub state: Option<PrState>,
+}
+
+impl PrLink {
+    /// `repo#123` with the owner dropped.
+    pub fn short(&self) -> String {
+        let repo = self.repo.rsplit('/').next().unwrap_or(&self.repo);
+        format!("{repo}#{}", self.number)
+    }
+}
+
+/// Where a pull request stands, from the owner's point of view. Checked in this
+/// order, so a PR with a conflict and failing checks reports the conflict.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PrState {
+    Merged,
+    Closed,
+    Draft,
+    Conflict,
+    ChecksFailed,
+    ChangesRequested,
+    Unresolved,
+    Pending,
+    Behind,
+    /// Checks passed and nothing is open; only the merge decision is left.
+    Ready,
+}
+
+impl PrState {
+    pub fn attention(self) -> Option<Attention> {
+        match self {
+            PrState::Ready => Some(Attention::Merge),
+            PrState::Conflict
+            | PrState::ChecksFailed
+            | PrState::ChangesRequested
+            | PrState::Unresolved
+            | PrState::Behind => Some(Attention::Blocked),
+            PrState::Merged | PrState::Closed | PrState::Draft | PrState::Pending => None,
+        }
+    }
 }
 
 impl Session {

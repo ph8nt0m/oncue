@@ -36,7 +36,9 @@ A process monitor such as [abtop](https://github.com/graykode/abtop) answers
 | `question` | The agent asked a question (`AskUserQuestion`) and is blocked. |
 | `permit` | A tool call is waiting for approval. |
 | `plan` | A plan is waiting for approval. |
+| `merge` | A PR passed checks with nothing open; only your merge decision is left. |
 | `error` | The agent stopped with an error. |
+| `blocked` | A PR is stuck: failing checks, conflict, requested changes, unresolved threads, or behind base. |
 | `limit` | The account hit a usage limit; shows when it resets. |
 | `done` | The turn finished and nobody has read the result yet. |
 | `idle` | The result was read but not answered. |
@@ -44,7 +46,11 @@ A process monitor such as [abtop](https://github.com/graykode/abtop) answers
 Finished turns that sit longer than `dormant_after_minutes` move to the dormant
 list (`d` to show). Questions and approvals never go dormant.
 
-oncue is read-only. It never writes to agent state and needs no API keys.
+An idle session whose PR needs you moves up to the PR's reason. Your own
+recent open PRs with no live session behind them get their own rows.
+
+oncue is read-only. It never writes to agent state and needs no API keys; GitHub
+goes through your existing `gh` login.
 
 ## Install
 
@@ -69,6 +75,7 @@ Keys: `j`/`k` move, `g`/`G` first/last, `d` toggle dormant, `r` refresh, `q` qui
 |---|---|
 | Claude Code | `~/.claude/sessions/*.json` for live sessions, the transcript tail for why they wait, `pr-link` entries for PRs. Also `~/.claude-*`, `~/.claude-profiles/*`, `$CLAUDE_CONFIG_DIR`. |
 | Paseo | `~/.paseo/agents/**.json` for titles and attention flags, `paseo permit ls` for pending approvals. |
+| GitHub | `gh api graphql` for the PRs sessions linked and your open PRs updated in the last `stale_after_days`: checks, review decision, conflicts, unresolved threads, merge state. |
 
 ## Configuration
 
@@ -80,13 +87,19 @@ claude_config_dirs = ["~/.claude-work"]
 paseo = true
 dormant_after_minutes = 360
 interval_secs = 2
+
+[github]
+enabled = true          # needs `gh auth login`
+my_prs = true           # also list your open PRs with no live session
+owners = []             # e.g. ["my-org"]; empty = everywhere
+stale_after_days = 3
+interval_secs = 90
 ```
 
 ## Roadmap
 
-See [docs/design.md](docs/design.md). Next up: GitHub PR state (checks, review,
-mergeable) and Linear issues in the queue, per-account usage limits, jumping to a
-session, and notifications.
+See [docs/design.md](docs/design.md). Next up: Linear issues, per-account usage
+limits, jumping to a session, and notifications.
 
 ## License
 
