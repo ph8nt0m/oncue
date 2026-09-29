@@ -17,6 +17,9 @@ pub struct Config {
     pub interval_secs: u64,
     pub github: GitHubConfig,
     pub linear: LinearConfig,
+    /// Command printing per-account usage limits as JSON (see README).
+    pub usage_command: String,
+    pub usage_interval_secs: u64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -82,6 +85,8 @@ impl Default for Config {
             interval_secs: 2,
             github: GitHubConfig::default(),
             linear: LinearConfig::default(),
+            usage_command: String::new(),
+            usage_interval_secs: 120,
         }
     }
 }

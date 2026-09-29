@@ -109,10 +109,11 @@ reasons never do.
 2. **GitHub** (v0.2): PR state for linked and own PRs; `merge` and `blocked`
    reasons.
 3. **Linear** (v0.3): issue keys, issue state, overlap warnings.
-4. **Usage limits per account**: 5-hour and weekly usage per Claude config root
-   and Codex profile, shown in the header, with the reset time. The source needs
-   a design decision: a statusline hook (no credentials, only updates while a
-   session renders) or the usage endpoint behind an explicit opt-in.
+4. **Usage limits per account** (v0.5): from a user-configured `usage_command`
+   printing a documented JSON array, polled in the background. Chosen over a
+   statusline hook (only the accounts of running sessions, no Codex, edits
+   settings) and over reading OAuth credentials (a public tool handling tokens
+   against an unofficial API).
 5. **Background waits** (v0.4): background starts come from tool results
    (`running in background with ID:`, `moved to the background (ID:`,
    `agentId:`), completions from any `<task-id>` notice. Unfinished ones keep an

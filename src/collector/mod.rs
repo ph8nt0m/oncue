@@ -2,6 +2,7 @@ pub mod claude;
 pub mod github;
 pub mod linear;
 pub mod paseo;
+pub mod usage;
 
 use crate::config::Config;
 use crate::issues;
@@ -21,6 +22,8 @@ pub struct Collector {
     team_keys: Vec<String>,
     /// Fetch network state inline on every collect (for --once/--json).
     blocking: bool,
+    usage_command: String,
+    usage_watcher: Option<usage::UsageWatcher>,
     pr_stale_ms: u64,
 }
 
@@ -51,7 +54,16 @@ impl Collector {
                 }
                 l
             });
+        let usage_command = config.usage_command.trim().to_string();
+        let usage_watcher = (background && !usage_command.is_empty()).then(|| {
+            usage::UsageWatcher::spawn(
+                usage_command.clone(),
+                Duration::from_secs(config.usage_interval_secs.max(30)),
+            )
+        });
         Self {
+            usage_command,
+            usage_watcher,
             github,
             linear,
             team_keys: lc.team_keys.clone(),
@@ -139,7 +151,23 @@ impl Collector {
         }
         issues::mark_overlaps(&mut sessions);
 
+        let usage = match (&self.usage_watcher, self.usage_command.is_empty()) {
+            (Some(w), _) => {
+                let (accounts, error) = w.latest();
+                if let Some(e) = error {
+                    warnings.push(format!("usage: {e}"));
+                }
+                accounts
+            }
+            (None, false) => usage::run(&self.usage_command).unwrap_or_else(|e| {
+                warnings.push(format!("usage: {e}"));
+                vec![]
+            }),
+            (None, true) => vec![],
+        };
+
         let mut snapshot = Snapshot {
+            usage,
             generated_at_ms: now,
             sessions,
             warnings,

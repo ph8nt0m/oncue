@@ -107,6 +107,13 @@ fn run_tui(collector: Collector, lang: Lang, interval: Duration) -> anyhow::Resu
 fn print_text(snapshot: &Snapshot, lang: Lang) {
     let t = lang.text();
     let now = snapshot.generated_at_ms;
+    if !snapshot.usage.is_empty() {
+        let line: String = ui::usage_parts(&snapshot.usage, now)
+            .into_iter()
+            .map(|(text, _)| text)
+            .collect();
+        println!("{}", line.trim_start());
+    }
     type Section<'a> = (&'a str, fn(&State) -> bool);
     let sections: [Section; 3] = [
         (t.needs_you, |s| matches!(s, State::NeedsYou(_))),

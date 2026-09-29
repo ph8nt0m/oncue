@@ -89,7 +89,8 @@ Keys: `j`/`k` move, `g`/`G` first/last, `d` toggle dormant, `r` refresh, `q` qui
 
 ## Configuration
 
-`~/.config/oncue/config.toml` (all optional):
+`~/.config/oncue/config.toml` (all optional). Top-level keys must come before
+the first `[table]`, or TOML reads them as part of that table.
 
 ```toml
 language = "ko"                    # en | ko; empty = LANG
@@ -97,6 +98,8 @@ claude_config_dirs = ["~/.claude-work"]
 paseo = true
 dormant_after_minutes = 360
 interval_secs = 2
+usage_command = ""                 # see "Usage limits"
+usage_interval_secs = 120
 
 [github]
 enabled = true          # needs `gh auth login`
@@ -114,10 +117,26 @@ team_keys = []          # e.g. ["ENG"]; empty = your workspace's teams
 interval_secs = 120
 ```
 
+## Usage limits
+
+oncue does not read agent credentials. To show per-account limits under the
+header, point `usage_command` at any command that prints a JSON array:
+
+```json
+[{"label": "Work", "provider": "claude",
+  "five_hour": {"used": 0.42, "reset": 1790666400, "status": "allowed"},
+  "seven_day": {"used": 0.81, "reset": 1790802000}}]
+```
+
+`used` is a fraction (0-1) and `reset` a Unix time in seconds; everything but
+`label` (or `name`) is optional. The line reads `C Work 5h 42% 7d 81% ↻1d`: green
+under 70%, yellow under 90%, red above or when refused, with the reset time once
+a window passes 80%.
+
 ## Roadmap
 
-See [docs/design.md](docs/design.md). Next up: per-account usage limits, jumping
-to a session, and notifications.
+See [docs/design.md](docs/design.md). Next up: jumping to a session, quick
+replies, and notifications.
 
 ## License
 

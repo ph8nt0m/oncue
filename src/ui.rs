@@ -1,3 +1,4 @@
+use crate::collector::usage::Account;
 use crate::i18n::{Lang, age};
 use crate::model::{Attention, IssueLink, IssueStateKind, PrLink, Session, Snapshot, State};
 use ratatui::Frame;
@@ -99,8 +100,17 @@ pub fn draw(f: &mut Frame, app: &App) {
     let queue = app.queue();
     let rest = app.rest();
     let queue_height = (queue.len().max(1) as u16 + 2).min(f.area().height / 2);
-    let [header, queue_area, rest_area, detail_area, footer] = Layout::vertical([
+    let has_usage = app.snapshot.as_ref().is_some_and(|s| !s.usage.is_empty());
+    let [
+        header,
+        usage_area,
+        queue_area,
+        rest_area,
+        detail_area,
+        footer,
+    ] = Layout::vertical([
         Constraint::Length(1),
+        Constraint::Length(u16::from(has_usage)),
         Constraint::Length(queue_height),
         Constraint::Min(3),
         Constraint::Length(10),
@@ -109,6 +119,16 @@ pub fn draw(f: &mut Frame, app: &App) {
     .areas(f.area());
 
     draw_header(f, header, app);
+    if let Some(s) = app.snapshot.as_ref().filter(|_| has_usage) {
+        let spans: Vec<Span> = usage_parts(&s.usage, s.generated_at_ms)
+            .into_iter()
+            .map(|(text, color)| match color {
+                Some(c) => Span::styled(text, Style::new().fg(c)),
+                None => Span::raw(text),
+            })
+            .collect();
+        f.render_widget(Paragraph::new(Line::from(spans)), usage_area);
+    }
 
     let queue_block = Block::bordered()
         .title(format!(" {} ({}) ", t.needs_you, queue.len()))
@@ -408,6 +428,47 @@ fn meta_line(s: &Session) -> String {
     .join(" · ")
 }
 
+/// ` C Work 5h 12% 7d 81% ↻2d ·` pieces with colors, shared by the TUI and
+/// `--once`. The reset time shows once a window is 80% used.
+pub fn usage_parts(accounts: &[Account], now: u64) -> Vec<(String, Option<Color>)> {
+    let mut parts = vec![(" ".to_string(), None)];
+    for (i, a) in accounts.iter().enumerate() {
+        if i > 0 {
+            parts.push(("  ".into(), None));
+        }
+        let provider = match a.provider.as_deref() {
+            Some("claude") => "C",
+            Some("codex") => "X",
+            Some(p) => &p[..p.len().min(1)],
+            None => "",
+        };
+        parts.push((format!("{provider} "), Some(Color::DarkGray)));
+        parts.push((a.label.clone(), Some(Color::Cyan)));
+        if a.error.is_some() {
+            parts.push((" !".into(), Some(Color::Red)));
+            continue;
+        }
+        for (name, w) in [("5h", &a.five_hour), ("7d", &a.seven_day)] {
+            let Some(w) = w else { continue };
+            let color = if w.is_limited() || w.used >= 0.9 {
+                Color::Red
+            } else if w.used >= 0.7 {
+                Color::Yellow
+            } else {
+                Color::Green
+            };
+            parts.push((format!(" {name} "), Some(Color::DarkGray)));
+            parts.push((format!("{:.0}%", w.used * 100.0), Some(color)));
+            if w.used >= 0.8 || w.is_limited() {
+                if let Some(reset) = w.reset_ms().filter(|r| *r > now) {
+                    parts.push((format!(" ↻{}", age(reset - now)), Some(Color::DarkGray)));
+                }
+            }
+        }
+    }
+    parts
+}
+
 /// The PR to show in the list: the most urgent open one, else the newest.
 fn headline_pr(s: &Session) -> Option<&PrLink> {
     s.prs
@@ -507,6 +568,7 @@ mod tests {
                 session("w", State::Working, "CI 고치기"),
             ],
             warnings: vec![],
+            ..Default::default()
         });
         assert_eq!(app.selected.as_deref(), Some("q"));
         let screen = render(&app);
@@ -525,6 +587,7 @@ mod tests {
             generated_at_ms: 0,
             sessions: vec![],
             warnings: vec![],
+            ..Default::default()
         });
         assert!(render(&app).contains("Nothingiswaitingonyou."));
     }

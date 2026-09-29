@@ -25,7 +25,8 @@ src/
     ├── claude.rs        # Claude Code sessions + transcript tail
     ├── github.rs        # PR state via gh GraphQL, background cache
     ├── linear.rs        # issue state via Linear GraphQL, background cache
-    └── paseo.rs         # Paseo agents + pending permits (background poll)
+    ├── paseo.rs         # Paseo agents + pending permits (background poll)
+    └── usage.rs         # per-account limits from usage_command (background poll)
 ```
 
 ## Rules

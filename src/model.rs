@@ -178,10 +178,12 @@ impl Session {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct Snapshot {
     pub generated_at_ms: u64,
     pub sessions: Vec<Session>,
+    /// Usage limits per account, from `usage_command`.
+    pub usage: Vec<crate::collector::usage::Account>,
     /// Non-fatal collector problems, shown in the footer.
     pub warnings: Vec<String>,
 }
