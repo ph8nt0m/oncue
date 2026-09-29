@@ -9,14 +9,27 @@ use crate::git;
 use crate::model::{
     Attention, Host, PrLink, Session, State, is_trivial_title, one_line, project_name,
 };
+use regex::Regex;
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 
 const TAIL_BYTES: u64 = 512 * 1024;
+/// A background task with no completion notice after this long is assumed
+/// lost (killed with its shell, or started before the tail window).
+const BACKGROUND_MAX_AGE_MS: u64 = 6 * 3600 * 1000;
+
+/// Tool results that mean "this now runs in the background".
+static BACKGROUND_STARTED: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?:running in background with ID: |moved to the background \(ID: |Async agent launched[\s\S]*?agentId: )([A-Za-z0-9_-]+)").unwrap()
+});
+/// Completion notices name the task; any mention means it finished.
+static TASK_NOTICE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"<task-id>([A-Za-z0-9_-]+)</task-id>").unwrap());
 const HEAD_BYTES: u64 = 64 * 1024;
 
 #[derive(Debug, Deserialize)]
@@ -104,10 +117,18 @@ fn build_session(root: &Path, file: SessionFile) -> anyhow::Result<Session> {
         None => Tail::default(),
     };
     let busy = file.status.as_deref() == Some("busy");
+    let mut tail = tail;
+    let now = crate::model::now_ms();
+    tail.background.retain(|b| {
+        b.started_ms
+            .is_none_or(|t| now.saturating_sub(t) < BACKGROUND_MAX_AGE_MS)
+    });
     let transcript_mtime = transcript.as_deref().and_then(mtime_ms);
 
     let c = classify(&tail, busy);
     let since_ms = match c.state {
+        // Idle to Claude Code, but waiting on its own background work.
+        State::Working if !busy => file.status_updated_at.or(file.updated_at),
         // Nothing is written to the transcript while a question is open, so the
         // last write is when the agent started waiting.
         State::NeedsYou(Attention::Question | Attention::Plan) => transcript_mtime,
@@ -213,6 +234,19 @@ fn classify(tail: &Tail, busy: bool) -> Classified {
             ..Default::default()
         };
     }
+    // The turn ended but the agent will resume when its background work
+    // reports back, so it is not waiting on the user.
+    if let Some(first) = tail.background.first() {
+        let more = match tail.background.len() {
+            1 => String::new(),
+            n => format!(" (+{})", n - 1),
+        };
+        return Classified {
+            state: State::Working,
+            activity: Some(format!("background: {}{more}", first.label)),
+            ..Default::default()
+        };
+    }
     let detail = if tail.interrupted {
         Some("[interrupted]".to_string())
     } else {
@@ -279,9 +313,18 @@ struct ApiError {
     resets_at_ms: Option<u64>,
 }
 
+#[derive(Debug, Clone)]
+struct BackgroundTask {
+    id: String,
+    label: String,
+    started_ms: Option<u64>,
+}
+
 #[derive(Debug, Default)]
 struct Tail {
     pending: Vec<PendingTool>,
+    /// Background commands and agents that have not reported back.
+    background: Vec<BackgroundTask>,
     /// Set when the last assistant turn was an API error rather than a reply.
     api_error: Option<ApiError>,
     last_text: Option<String>,
@@ -310,8 +353,14 @@ fn parse_tail<'a>(lines: impl Iterator<Item = &'a str>) -> Tail {
     let mut pending: Vec<PendingTool> = Vec::new();
     let mut prs: HashMap<String, PrLink> = HashMap::new();
     let mut pr_order: Vec<String> = Vec::new();
+    let mut labels: HashMap<String, String> = HashMap::new();
+    let mut background: Vec<BackgroundTask> = Vec::new();
+    let mut finished: std::collections::HashSet<String> = Default::default();
 
     for line in lines {
+        if line.contains("<task-id>") {
+            finished.extend(TASK_NOTICE.captures_iter(line).map(|c| c[1].to_string()));
+        }
         let Ok(entry) = serde_json::from_str::<Value>(line) else {
             continue;
         };
@@ -357,15 +406,25 @@ fn parse_tail<'a>(lines: impl Iterator<Item = &'a str>) -> Tail {
                                 }
                             }
                         }
-                        Some("tool_use") => pending.push(PendingTool {
-                            id: block.get("id").and_then(Value::as_str).unwrap_or("").into(),
-                            name: block
-                                .get("name")
-                                .and_then(Value::as_str)
-                                .unwrap_or("")
-                                .into(),
-                            input: block.get("input").cloned().unwrap_or(Value::Null),
-                        }),
+                        Some("tool_use") => {
+                            let id = block.get("id").and_then(Value::as_str).unwrap_or("");
+                            let input = block.get("input").unwrap_or(&Value::Null);
+                            let label = ["description", "command", "prompt"]
+                                .iter()
+                                .find_map(|k| input.get(*k).and_then(Value::as_str))
+                                .map(|t| one_line(t, 60))
+                                .unwrap_or_default();
+                            labels.insert(id.to_string(), label);
+                            pending.push(PendingTool {
+                                id: block.get("id").and_then(Value::as_str).unwrap_or("").into(),
+                                name: block
+                                    .get("name")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("")
+                                    .into(),
+                                input: block.get("input").cloned().unwrap_or(Value::Null),
+                            })
+                        }
                         _ => {}
                     }
                 }
@@ -382,6 +441,18 @@ fn parse_tail<'a>(lines: impl Iterator<Item = &'a str>) -> Tail {
                             .and_then(Value::as_str)
                             .unwrap_or("");
                         pending.retain(|p| p.id != id);
+                        let text = result_text(block);
+                        if let Some(c) = BACKGROUND_STARTED.captures(&text) {
+                            background.push(BackgroundTask {
+                                id: c[1].to_string(),
+                                label: labels.get(id).cloned().unwrap_or_default(),
+                                started_ms: entry
+                                    .get("timestamp")
+                                    .and_then(Value::as_str)
+                                    .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
+                                    .map(|t| t.timestamp_millis().max(0) as u64),
+                            });
+                        }
                     }
                 }
                 let text = match content {
@@ -401,6 +472,8 @@ fn parse_tail<'a>(lines: impl Iterator<Item = &'a str>) -> Tail {
         }
     }
     tail.pending = pending;
+    background.retain(|b| !finished.contains(&b.id));
+    tail.background = background;
     tail.prs = pr_order
         .into_iter()
         .filter_map(|k| prs.remove(&k))
@@ -426,6 +499,18 @@ fn parse_api_error(entry: &Value) -> ApiError {
             .pointer("/quotaLimits/resetsAt")
             .and_then(Value::as_u64)
             .map(|s| s * 1000),
+    }
+}
+
+fn result_text(block: &Value) -> String {
+    match block.get("content") {
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::Array(a)) => a
+            .iter()
+            .filter_map(|b| b.get("text").and_then(Value::as_str))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => String::new(),
     }
 }
 
@@ -625,6 +710,64 @@ mod tests {
         let cont = serde_json::json!({"type":"user","message":{"content":"ok go"}});
         fs::write(&p, format!("{summary}\n{cont}\n")).unwrap();
         assert_eq!(first_prompt(&p).as_deref(), Some("Design the thread feed"));
+    }
+
+    fn bg_start(id: &str, tool: &str, desc: &str, ts: &str) -> [String; 2] {
+        let result = if tool == "Agent" {
+            format!("Async agent launched successfully.\\nagentId: {id} (internal ID)")
+        } else {
+            format!(
+                "Command running in background with ID: {id}. Output is being written to: /tmp/x"
+            )
+        };
+        [
+            format!(
+                r#"{{"type":"assistant","message":{{"content":[{{"type":"tool_use","id":"u-{id}","name":"{tool}","input":{{"description":"{desc}"}}}}]}}}}"#
+            ),
+            format!(
+                r#"{{"type":"user","timestamp":"{ts}","message":{{"content":[{{"type":"tool_result","tool_use_id":"u-{id}","content":[{{"type":"text","text":"{result}"}}]}}]}}}}"#
+            ),
+        ]
+    }
+
+    fn notice(id: &str) -> String {
+        format!(
+            r#"{{"type":"queue-operation","operation":"enqueue","content":"<task-notification>\n<task-id>{id}</task-id>\n<status>completed</status>"}}"#
+        )
+    }
+
+    #[test]
+    fn idle_with_running_background_work_is_working() {
+        let [u, r] = bg_start("b1", "Bash", "Wait for CI", "2026-09-29T10:00:00Z");
+        let t = tail(&[&u, &r, DONE]);
+        let c = classify(&t, false);
+        assert_eq!(c.state, State::Working);
+        assert_eq!(c.activity.as_deref(), Some("background: Wait for CI"));
+    }
+
+    #[test]
+    fn background_agents_count_and_notices_finish_them() {
+        let [u1, r1] = bg_start("a1", "Agent", "Review PR", "2026-09-29T10:00:00Z");
+        let [u2, r2] = bg_start("b2", "Bash", "Poll deploy", "2026-09-29T10:01:00Z");
+        let t = tail(&[&u1, &r1, &u2, &r2, DONE]);
+        assert_eq!(
+            classify(&t, false).activity.as_deref(),
+            Some("background: Review PR (+1)")
+        );
+        let n1 = notice("a1");
+        let n2 = notice("b2");
+        let t = tail(&[&u1, &r1, &u2, &r2, &n1, &n2, DONE]);
+        assert_eq!(
+            classify(&t, false).state,
+            State::NeedsYou(Attention::Unread)
+        );
+    }
+
+    #[test]
+    fn background_start_keeps_its_timestamp() {
+        let [u, r] = bg_start("b3", "Bash", "x", "2026-09-29T10:00:00Z");
+        let t = tail(&[&u, &r]);
+        assert_eq!(t.background[0].started_ms, Some(1_790_676_000_000));
     }
 
     #[test]

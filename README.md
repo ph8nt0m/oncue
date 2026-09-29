@@ -43,6 +43,10 @@ A process monitor such as [abtop](https://github.com/graykode/abtop) answers
 | `done` | The turn finished and nobody has read the result yet. |
 | `idle` | The result was read but not answered. |
 
+A session whose turn ended while its background commands or agents are still
+running (polling CI, waiting on a review) stays in the working list with what it
+is waiting on: it will resume by itself.
+
 Finished turns that sit longer than `dormant_after_minutes` move to the dormant
 list (`d` to show). Questions and approvals never go dormant.
 
@@ -112,9 +116,8 @@ interval_secs = 120
 
 ## Roadmap
 
-See [docs/design.md](docs/design.md). Next up: per-account usage limits,
-telling background waits apart from real idleness, jumping to a session, and
-notifications.
+See [docs/design.md](docs/design.md). Next up: per-account usage limits, jumping
+to a session, and notifications.
 
 ## License
 

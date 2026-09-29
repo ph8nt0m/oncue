@@ -37,6 +37,7 @@ by urgency, and the queue sorts by that order, then by the longest wait.
 | Error | Paseo `attentionReason = error`; or the last assistant entry is an API error. |
 | Blocked | A linked or own PR is in `Conflict`, `ChecksFailed`, `ChangesRequested`, `Unresolved`, or `Behind`. |
 | Limited | The last assistant entry is an API error with `error = rate_limit`; `quotaLimits.resetsAt` gives the reset. |
+| (Working) | Session idle, but a background command or agent it started has no completion notice yet (started within 6 h). |
 | Unread | Session idle after a normal reply, and Paseo (if present) still flags it. |
 | Idle | Session idle and the user already opened it (Paseo cleared the flag). |
 
@@ -112,9 +113,10 @@ reasons never do.
    and Codex profile, shown in the header, with the reset time. The source needs
    a design decision: a statusline hook (no credentials, only updates while a
    session renders) or the usage endpoint behind an explicit opt-in.
-5. **Background waits**: a session that ended its turn while background tasks
-   (CI polling, subagents) still run is idle to Claude Code but not waiting on
-   the user. Detect pending background tasks and keep it in the working list.
+5. **Background waits** (v0.4): background starts come from tool results
+   (`running in background with ID:`, `moved to the background (ID:`,
+   `agentId:`), completions from any `<task-id>` notice. Unfinished ones keep an
+   idle session in the working list.
 6. **Act from the queue**: jump to the session (tmux, iTerm2, Paseo), send a
    quick reply through `paseo send`, desktop notifications when the queue grows,
    Codex CLI and OpenCode collectors.
