@@ -88,6 +88,18 @@ reasons never do.
 - The TUI fetches on a background thread every `interval_secs` and picks up
   newly linked PRs within about two seconds. `--once`/`--json` fetch inline.
 
+### Linear
+
+- Keys are matched with the workspace's team keys once known (any case), else
+  `ABC-123` in text and the `team-123` segment of branch names. Sources in
+  priority order: session branch, PR branches, PR titles, session title. The
+  first key is the session's main issue.
+- With an API key (env var or `api_key_command`, memory only), issue title and
+  state are fetched in aliased batches of 25. Keys Linear does not know are
+  dropped, which filters false positives such as `UTF-8`.
+- Overlaps: live sessions (not dormant, not PR-only rows) sharing a main issue or
+  a non-trunk branch are marked with each other's titles.
+
 `paseo permit ls` takes 2-5 s, so the TUI also polls it on a background thread.
 
 ## Roadmap
@@ -95,9 +107,7 @@ reasons never do.
 1. **Local queue** (v0.1): Claude Code + Paseo, TUI, `--once`, `--json`, en/ko.
 2. **GitHub** (v0.2): PR state for linked and own PRs; `merge` and `blocked`
    reasons.
-3. **Linear**: issue keys from branch names, PR titles, and prompts (configurable
-   pattern such as `[A-Z]+-\d+`); issue state next to each session; warn when two
-   live sessions work on the same issue or branch.
+3. **Linear** (v0.3): issue keys, issue state, overlap warnings.
 4. **Usage limits per account**: 5-hour and weekly usage per Claude config root
    and Codex profile, shown in the header, with the reset time. The source needs
    a design decision: a statusline hook (no credentials, only updates while a

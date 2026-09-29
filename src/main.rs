@@ -2,6 +2,7 @@ mod collector;
 mod config;
 mod git;
 mod i18n;
+mod issues;
 mod model;
 mod ui;
 
@@ -128,12 +129,20 @@ fn print_text(snapshot: &Snapshot, lang: Lang) {
                 Some(b) => format!("{} ({b})", s.project),
                 None => s.project.clone(),
             };
+            let issue = s
+                .issues
+                .first()
+                .map(|i| format!(" [{}]", i.key))
+                .unwrap_or_default();
+            let overlap = if s.overlaps.is_empty() { "" } else { "⚠ " };
             println!(
-                "  {} {:<8} {:>4}  {}  {}",
+                "  {} {:<8} {:>4}  {}{}  {}{}",
                 ui::icon(&s.state),
                 lang.state(&s.state),
                 waited,
                 place,
+                issue,
+                overlap,
                 model::one_line(&s.title, 80)
             );
             if let Some(d) = s.detail.as_deref().or(s.activity.as_deref()) {

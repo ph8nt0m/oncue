@@ -146,6 +146,7 @@ fn build_session(root: &Path, file: SessionFile) -> anyhow::Result<Session> {
         session_id: Some(file.session_id),
         paseo_id: None,
         prs: tail.prs,
+        ..Default::default()
     })
 }
 
@@ -433,7 +434,7 @@ fn parse_pr_link(entry: &Value) -> Option<PrLink> {
         repo: entry.get("prRepository")?.as_str()?.to_string(),
         number: entry.get("prNumber")?.as_u64()?,
         url: entry.get("prUrl")?.as_str()?.to_string(),
-        state: None,
+        ..Default::default()
     })
 }
 

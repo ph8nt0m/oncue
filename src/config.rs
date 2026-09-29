@@ -16,6 +16,34 @@ pub struct Config {
     /// Refresh interval in seconds.
     pub interval_secs: u64,
     pub github: GitHubConfig,
+    pub linear: LinearConfig,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct LinearConfig {
+    pub enabled: bool,
+    /// Environment variable holding a Linear personal API key.
+    pub api_key_env: String,
+    /// Shell command that prints the key, used when the variable is unset,
+    /// e.g. `security find-generic-password -s oncue-linear -w`.
+    pub api_key_command: String,
+    /// Issue key prefixes to match. Empty means the workspace's teams, or any
+    /// `ABC-123` without an API key.
+    pub team_keys: Vec<String>,
+    pub interval_secs: u64,
+}
+
+impl Default for LinearConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            api_key_env: "LINEAR_API_KEY".into(),
+            api_key_command: String::new(),
+            team_keys: vec![],
+            interval_secs: 120,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -53,6 +81,7 @@ impl Default for Config {
             dormant_after_minutes: 6 * 60,
             interval_secs: 2,
             github: GitHubConfig::default(),
+            linear: LinearConfig::default(),
         }
     }
 }

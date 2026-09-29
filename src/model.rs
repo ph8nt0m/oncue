@@ -37,10 +37,11 @@ pub enum State {
     Dormant,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Host {
     /// A CLI process started directly in a terminal.
+    #[default]
     Terminal,
     /// An agent managed by the Paseo daemon.
     Paseo,
@@ -48,7 +49,7 @@ pub enum Host {
     GitHub,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct Session {
     /// Stable identity across refreshes, e.g. `claude:<session id>`.
     pub key: String,
@@ -74,15 +75,58 @@ pub struct Session {
     pub paseo_id: Option<String>,
     /// Pull requests the session opened or referenced, newest last.
     pub prs: Vec<PrLink>,
+    /// Issue keys found in the branch, PRs, and title; the first is the main one.
+    pub issues: Vec<IssueLink>,
+    /// Titles of other live sessions on the same main issue or branch.
+    pub overlaps: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct IssueLink {
+    pub key: String,
+    /// Filled in by the Linear collector.
+    pub title: Option<String>,
+    pub url: Option<String>,
+    /// Workflow state name as shown in the tracker, e.g. "In Progress".
+    pub state: Option<String>,
+    pub state_kind: Option<IssueStateKind>,
+}
+
+/// Linear's workflow state types.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IssueStateKind {
+    Triage,
+    Backlog,
+    Unstarted,
+    Started,
+    Completed,
+    Canceled,
+}
+
+impl IssueStateKind {
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "triage" => Self::Triage,
+            "backlog" => Self::Backlog,
+            "unstarted" => Self::Unstarted,
+            "started" => Self::Started,
+            "completed" => Self::Completed,
+            "canceled" => Self::Canceled,
+            _ => return None,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct PrLink {
     pub repo: String,
     pub number: u64,
     pub url: String,
     /// Filled in by the GitHub collector.
     pub state: Option<PrState>,
+    pub title: Option<String>,
+    pub branch: Option<String>,
 }
 
 impl PrLink {

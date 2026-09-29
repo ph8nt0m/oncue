@@ -181,7 +181,11 @@ impl GitHub {
                     repo: link.repo.clone(),
                     number: link.number,
                 };
-                link.state = cache.prs.get(&key).map(|p| p.state);
+                if let Some(pr) = cache.prs.get(&key) {
+                    link.state = Some(pr.state);
+                    link.title = Some(pr.title.clone());
+                    link.branch = Some(pr.branch.clone());
+                }
                 owned.insert(key);
             }
             raise_for_prs(s, &cache.prs, stale_after_ms, now);
@@ -244,6 +248,8 @@ fn pr_row(pr: &Pr, stale_after_ms: u64, now: u64) -> Option<Session> {
         number: pr.number,
         url: pr.url.clone(),
         state: Some(pr.state),
+        title: Some(pr.title.clone()),
+        branch: Some(pr.branch.clone()),
     };
     Some(Session {
         key: format!("gh:{}", pr.url),
@@ -263,6 +269,7 @@ fn pr_row(pr: &Pr, stale_after_ms: u64, now: u64) -> Option<Session> {
         session_id: None,
         paseo_id: None,
         prs: vec![link],
+        ..Default::default()
     })
 }
 

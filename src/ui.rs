@@ -1,5 +1,5 @@
 use crate::i18n::{Lang, age};
-use crate::model::{Attention, PrLink, Session, Snapshot, State};
+use crate::model::{Attention, IssueLink, IssueStateKind, PrLink, Session, Snapshot, State};
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -200,7 +200,7 @@ fn draw_header(f: &mut Frame, area: Rect, app: &App) {
 
 fn draw_table(f: &mut Frame, area: Rect, app: &App, rows: &[&Session], block: Block) {
     let now = app.snapshot.as_ref().map_or(0, |s| s.generated_at_ms);
-    let cells: Vec<[String; 5]> = rows
+    let cells: Vec<[String; 6]> = rows
         .iter()
         .map(|s| {
             let waited = s
@@ -212,20 +212,25 @@ fn draw_table(f: &mut Frame, area: Rect, app: &App, rows: &[&Session], block: Bl
                 _ => s.project.clone(),
             };
             let pr = headline_pr(s).map(|p| p.short()).unwrap_or_default();
-            let what = match (&s.state, &s.activity) {
+            let issue = s.issues.first().map(|i| i.key.clone()).unwrap_or_default();
+            let mut what = match (&s.state, &s.activity) {
                 (State::Working, Some(a)) => format!("{}  — {a}", s.title),
                 _ => s.title.clone(),
             };
+            if !s.overlaps.is_empty() {
+                what = format!("⚠ {what}");
+            }
             [
                 app.lang.state(&s.state).to_string(),
                 waited,
                 place,
                 pr,
+                issue,
                 what,
             ]
         })
         .collect();
-    // Size the place and PR columns to their content so the title gets the rest.
+    // Size the middle columns to their content so the title gets the rest.
     let width = |i: usize, cap: u16| {
         cells
             .iter()
@@ -240,20 +245,28 @@ fn draw_table(f: &mut Frame, area: Rect, app: &App, rows: &[&Session], block: Bl
         Constraint::Length(4),
         Constraint::Length(width(2, 32)),
         Constraint::Length(width(3, 24)),
+        Constraint::Length(width(4, 14)),
         Constraint::Fill(1),
     ];
     let table_rows = rows
         .iter()
         .zip(cells)
-        .map(|(s, [label, waited, place, pr, what])| {
+        .map(|(s, [label, waited, place, pr, issue, what])| {
             let color = state_color(&s.state);
+            let issue_color = s.issues.first().map_or(Color::Gray, issue_color);
+            let what_style = if s.overlaps.is_empty() {
+                Style::new()
+            } else {
+                Style::new().fg(Color::Yellow)
+            };
             Row::new(vec![
                 Cell::from(icon(&s.state)).style(Style::new().fg(color)),
                 Cell::from(label).style(Style::new().fg(color)),
                 Cell::from(waited),
                 Cell::from(place).style(Style::new().fg(Color::Cyan)),
                 Cell::from(pr).style(Style::new().fg(Color::Blue)),
-                Cell::from(what),
+                Cell::from(issue).style(Style::new().fg(issue_color)),
+                Cell::from(what).style(what_style),
             ])
         });
     let table = Table::new(table_rows, widths)
@@ -268,6 +281,16 @@ fn draw_table(f: &mut Frame, area: Rect, app: &App, rows: &[&Session], block: Bl
             .and_then(|k| rows.iter().position(|s| &s.key == k)),
     );
     f.render_stateful_widget(table, area, &mut state);
+}
+
+fn issue_color(i: &IssueLink) -> Color {
+    match i.state_kind {
+        Some(IssueStateKind::Started) => Color::Yellow,
+        Some(IssueStateKind::Completed) => Color::Green,
+        Some(IssueStateKind::Canceled) => Color::DarkGray,
+        Some(_) => Color::Gray,
+        None => Color::Magenta,
+    }
 }
 
 fn draw_detail(f: &mut Frame, area: Rect, app: &App) {
@@ -329,6 +352,36 @@ fn draw_detail(f: &mut Frame, area: Rect, app: &App) {
             }
         }
         lines.push(Line::from(spans));
+    }
+    if !s.issues.is_empty() {
+        let mut spans = vec![Span::raw(format!("{}: ", t.issues))];
+        for (i, issue) in s.issues.iter().enumerate() {
+            if i > 0 {
+                spans.push(Span::raw(", "));
+            }
+            spans.push(Span::styled(
+                issue.key.clone(),
+                Style::new().fg(issue_color(issue)),
+            ));
+            if let Some(state) = &issue.state {
+                spans.push(Span::styled(
+                    format!(" {state}"),
+                    Style::new().fg(Color::DarkGray),
+                ));
+            }
+            if i == 0 {
+                if let Some(title) = &issue.title {
+                    spans.push(Span::raw(format!(" — {title}")));
+                }
+            }
+        }
+        lines.push(Line::from(spans));
+    }
+    if !s.overlaps.is_empty() {
+        lines.push(Line::from(Span::styled(
+            format!("⚠ {}: {}", t.overlaps, s.overlaps.join(", ")),
+            Style::new().fg(Color::Yellow),
+        )));
     }
     f.render_widget(
         Paragraph::new(lines).wrap(Wrap { trim: true }).block(block),
@@ -425,7 +478,9 @@ mod tests {
                 number: 7,
                 url: String::new(),
                 state: Some(crate::model::PrState::Ready),
+                ..PrLink::default()
             }],
+            ..Session::default()
         }
     }
 

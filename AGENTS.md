@@ -18,11 +18,13 @@ src/
 ├── config.rs            # ~/.config/oncue/config.toml
 ├── i18n.rs              # en/ko strings, age formatting
 ├── git.rs               # branch from HEAD without spawning git
+├── issues.rs            # issue key matching, overlapping sessions
 ├── ui.rs                # ratatui drawing and selection
 └── collector/
     ├── mod.rs           # runs collectors, merges, applies dormancy
     ├── claude.rs        # Claude Code sessions + transcript tail
     ├── github.rs        # PR state via gh GraphQL, background cache
+    ├── linear.rs        # issue state via Linear GraphQL, background cache
     └── paseo.rs         # Paseo agents + pending permits (background poll)
 ```
 
@@ -31,8 +33,10 @@ src/
 - oncue is read-only toward agents. Never write to `~/.claude*`, `~/.paseo`, or
   any other agent directory. Settings changes (for example a hook installer) must
   be an explicit subcommand the user runs.
-- Network access only through the user's own CLI auth (`gh`), on a background
-  thread in the TUI, and switchable off in config. Never ask for or store tokens.
+- Network access only with the user's own credentials (`gh` login, a Linear key
+  from an env var or a user-configured command), on a background thread in the
+  TUI, and switchable off in config. Keys stay in memory: never write, log, or
+  display them.
 - Tests use synthetic fixtures only. Never commit real transcripts, session
   files, paths, or names from a real machine.
 - A new `Attention` variant needs: its place in the enum order (urgency), an

@@ -46,11 +46,16 @@ A process monitor such as [abtop](https://github.com/graykode/abtop) answers
 Finished turns that sit longer than `dormant_after_minutes` move to the dormant
 list (`d` to show). Questions and approvals never go dormant.
 
+Issue keys (`ENG-123`) are picked up from branches, PR titles, and session
+titles. A `⚠` marks live sessions working on the same issue or branch, the
+usual way parallel agents collide.
+
 An idle session whose PR needs you moves up to the PR's reason. Your own
 recent open PRs with no live session behind them get their own rows.
 
 oncue is read-only. It never writes to agent state and needs no API keys; GitHub
-goes through your existing `gh` login.
+goes through your existing `gh` login, and Linear issue state is added when a
+Linear API key is available (see below).
 
 ## Install
 
@@ -75,6 +80,7 @@ Keys: `j`/`k` move, `g`/`G` first/last, `d` toggle dormant, `r` refresh, `q` qui
 |---|---|
 | Claude Code | `~/.claude/sessions/*.json` for live sessions, the transcript tail for why they wait, `pr-link` entries for PRs. Also `~/.claude-*`, `~/.claude-profiles/*`, `$CLAUDE_CONFIG_DIR`. |
 | Paseo | `~/.paseo/agents/**.json` for titles and attention flags, `paseo permit ls` for pending approvals. |
+| Linear | Issue title and workflow state for the keys found, with `LINEAR_API_KEY` or `api_key_command`. Without a key, keys and overlap warnings still work. |
 | GitHub | `gh api graphql` for the PRs sessions linked and your open PRs updated in the last `stale_after_days`: checks, review decision, conflicts, unresolved threads, merge state. |
 
 ## Configuration
@@ -94,12 +100,21 @@ my_prs = true           # also list your open PRs with no live session
 owners = []             # e.g. ["my-org"]; empty = everywhere
 stale_after_days = 3
 interval_secs = 90
+
+[linear]
+enabled = true
+api_key_env = "LINEAR_API_KEY"
+# Used when the variable is unset; the key stays in memory only.
+api_key_command = "security find-generic-password -s oncue-linear -w"
+team_keys = []          # e.g. ["ENG"]; empty = your workspace's teams
+interval_secs = 120
 ```
 
 ## Roadmap
 
-See [docs/design.md](docs/design.md). Next up: Linear issues, per-account usage
-limits, jumping to a session, and notifications.
+See [docs/design.md](docs/design.md). Next up: per-account usage limits,
+telling background waits apart from real idleness, jumping to a session, and
+notifications.
 
 ## License
 

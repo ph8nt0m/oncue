@@ -213,6 +213,7 @@ fn standalone(agent: &Agent) -> Session {
             .and_then(|p| p.session_id.clone()),
         paseo_id: Some(agent.id.clone()),
         prs: vec![],
+        ..Default::default()
     }
 }
 
@@ -287,6 +288,7 @@ mod tests {
             session_id: Some(id.into()),
             paseo_id: None,
             prs: vec![],
+            ..Default::default()
         }
     }
 

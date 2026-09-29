@@ -1,8 +1,10 @@
 pub mod claude;
 pub mod github;
+pub mod linear;
 pub mod paseo;
 
 use crate::config::Config;
+use crate::issues;
 use crate::model::{Attention, Snapshot, State, now_ms};
 use std::path::PathBuf;
 use std::time::Duration;
@@ -15,8 +17,10 @@ pub struct Collector {
     started: std::time::Instant,
     dormant_after_ms: u64,
     github: Option<github::GitHub>,
-    /// Fetch GitHub state inline on every collect (for --once/--json).
-    github_blocking: bool,
+    linear: Option<linear::Linear>,
+    team_keys: Vec<String>,
+    /// Fetch network state inline on every collect (for --once/--json).
+    blocking: bool,
     pr_stale_ms: u64,
 }
 
@@ -35,9 +39,23 @@ impl Collector {
             }
             gh
         });
+        let lc = &config.linear;
+        let linear = lc
+            .enabled
+            .then(|| linear::api_key(&lc.api_key_env, &lc.api_key_command))
+            .flatten()
+            .map(|key| {
+                let l = linear::Linear::new(key);
+                if background {
+                    l.spawn(Duration::from_secs(lc.interval_secs.max(30)));
+                }
+                l
+            });
         Self {
             github,
-            github_blocking: !background,
+            linear,
+            team_keys: lc.team_keys.clone(),
+            blocking: !background,
             pr_stale_ms: config.github.stale_after_days * 86_400_000,
             claude_roots: claude::discover_roots(&config.claude_config_dirs),
             paseo_home: if config.paseo { paseo::home() } else { None },
@@ -90,11 +108,36 @@ impl Collector {
                     number: p.number,
                 })
             }));
-            if self.github_blocking {
+            if self.blocking {
                 gh.refresh_all();
             }
             gh.apply(&mut sessions, self.pr_stale_ms, now, &mut warnings);
         }
+
+        // Configured team keys win; otherwise the workspace's, once fetched.
+        let team_keys = match (&self.team_keys, &self.linear) {
+            (k, _) if !k.is_empty() => k.clone(),
+            (_, Some(l)) => {
+                if self.blocking && l.team_keys().is_none() {
+                    l.refresh_all();
+                }
+                l.team_keys().unwrap_or_default()
+            }
+            _ => vec![],
+        };
+        issues::link(&mut sessions, &issues::KeyMatcher::new(&team_keys));
+        if let Some(l) = &self.linear {
+            l.want(
+                sessions
+                    .iter()
+                    .flat_map(|s| s.issues.iter().map(|i| i.key.clone())),
+            );
+            if self.blocking {
+                l.refresh_all();
+            }
+            l.apply(&mut sessions, &mut warnings);
+        }
+        issues::mark_overlaps(&mut sessions);
 
         let mut snapshot = Snapshot {
             generated_at_ms: now,
