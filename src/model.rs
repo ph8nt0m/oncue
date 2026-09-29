@@ -73,6 +73,8 @@ pub struct Session {
     pub pid: Option<u32>,
     pub session_id: Option<String>,
     pub paseo_id: Option<String>,
+    /// Pending Paseo permission request, for `Permission` sessions.
+    pub permit_id: Option<String>,
     /// Pull requests the session opened or referenced, newest last.
     pub prs: Vec<PrLink>,
     /// Issue keys found in the branch, PRs, and title; the first is the main one.

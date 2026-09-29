@@ -1,3 +1,4 @@
+use crate::actions::Action;
 use crate::collector::usage::Account;
 use crate::i18n::{Lang, age};
 use crate::model::{Attention, IssueLink, IssueStateKind, PrLink, Session, Snapshot, State};
@@ -13,11 +14,17 @@ pub struct App {
     pub show_dormant: bool,
     /// Selected session key, kept stable across refreshes.
     pub selected: Option<String>,
+    /// An action waiting for `y`, with the question shown in the footer.
+    pub pending: Option<(Action, String)>,
+    /// Result of the last action, shown in the footer until the next key.
+    pub status: Option<String>,
 }
 
 impl App {
     pub fn new(lang: Lang) -> Self {
         Self {
+            pending: None,
+            status: None,
             snapshot: None,
             lang,
             show_dormant: false,
@@ -85,7 +92,7 @@ impl App {
         }
     }
 
-    fn selected_session(&self) -> Option<&Session> {
+    pub fn selected_session(&self) -> Option<&Session> {
         let key = self.selected.as_ref()?;
         self.snapshot
             .as_ref()?
@@ -164,19 +171,33 @@ pub fn draw(f: &mut Frame, app: &App) {
 
     draw_detail(f, detail_area, app);
 
-    let warning = app
-        .snapshot
-        .as_ref()
-        .and_then(|s| s.warnings.first())
-        .map(|w| format!("  ⚠ {w}"))
-        .unwrap_or_default();
-    f.render_widget(
-        Paragraph::new(Line::from(vec![
+    let t = app.lang.text();
+    let footer_line = if let Some((_, question)) = &app.pending {
+        Line::from(vec![
+            Span::styled(
+                format!(" {question} "),
+                Style::new().fg(Color::Black).bg(Color::Yellow),
+            ),
+            Span::styled(
+                format!("  {}", t.confirm_keys),
+                Style::new().fg(Color::Yellow),
+            ),
+        ])
+    } else if let Some(status) = &app.status {
+        Line::from(Span::styled(status.clone(), Style::new().fg(Color::Cyan)))
+    } else {
+        let warning = app
+            .snapshot
+            .as_ref()
+            .and_then(|s| s.warnings.first())
+            .map(|w| format!("  ⚠ {w}"))
+            .unwrap_or_default();
+        Line::from(vec![
             Span::styled(t.help, Style::new().fg(Color::DarkGray)),
             Span::styled(warning, Style::new().fg(Color::Yellow)),
-        ])),
-        footer,
-    );
+        ])
+    };
+    f.render_widget(Paragraph::new(footer_line), footer);
 }
 
 fn draw_header(f: &mut Frame, area: Rect, app: &App) {

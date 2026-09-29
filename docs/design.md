@@ -17,8 +17,9 @@ and wait time, with enough detail to act without opening the session.
   sessions are secondary; dormant ones are hidden by default.
 - **Say why.** Every queued item has a reason (question, permit, plan, error,
   limit, done, idle) and the text needed to act on it.
-- **Read-only.** oncue reads agent state from disk and local CLIs and never
-  writes to agent directories. Network sources use the user's existing CLI auth
+- **Read-only by default.** oncue reads agent state from disk and local CLIs and
+  never writes to agent directories. The only writes are user-triggered Paseo
+  CLI calls (quick reply, permission allow), each confirmed with `y`. Network sources use the user's existing CLI auth
   (`gh`), can be turned off in config, and run on background threads.
 - **Cheap to run.** One refresh should stay well under a second with dozens of
   sessions; transcripts are read from the tail, never parsed whole.
@@ -118,8 +119,14 @@ reasons never do.
    (`running in background with ID:`, `moved to the background (ID:`,
    `agentId:`), completions from any `<task-id>` notice. Unfinished ones keep an
    idle session in the working list.
-6. **Act from the queue**: jump to the session (tmux, iTerm2, Paseo), send a
-   quick reply through `paseo send`, desktop notifications when the queue grows,
-   Codex CLI and OpenCode collectors.
-7. **Release**: cargo-dist binaries, Homebrew tap, crates.io, a `--demo` mode with
+6. **Act from the queue** (v0.6): Enter opens `paseo://h/<server-id>/agent/<id>`
+   (server id from `~/.paseo/server-id`) or the PR; `1`-`9` send configured
+   replies with `paseo send --no-wait`; `a` runs `paseo permit allow <agent>
+   <request prefix>`; desktop notifications for new decision-type reasons after a
+   30 s warm-up (startup fills in GitHub/Linear state, which is not news).
+   Terminal-only sessions cannot be opened or replied to yet (tmux/iTerm jump is
+   future work).
+7. **More hosts**: tmux/iTerm2 jump for terminal sessions; Codex CLI and
+   OpenCode collectors.
+8. **Release**: cargo-dist binaries, Homebrew tap, crates.io, a `--demo` mode with
    synthetic data for screenshots.

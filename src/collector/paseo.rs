@@ -55,6 +55,9 @@ pub struct Persistence {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Permit {
+    /// Request id prefix, as `paseo permit ls` prints it.
+    #[serde(default)]
+    pub id: String,
     pub agent_id: String,
     pub name: String,
     #[serde(default)]
@@ -223,6 +226,7 @@ fn apply_attention(s: &mut Session, agent: &Agent, pending: &[Permit]) {
     if let Some(p) = pending.iter().find(|p| p.name != "AskUserQuestion") {
         if s.state != State::NeedsYou(Attention::Question) {
             s.state = State::NeedsYou(Attention::Permission);
+            s.permit_id = Some(p.id.clone()).filter(|id| !id.is_empty());
             s.detail = Some(match &p.description {
                 Some(d) => format!("{}: {}", p.name, one_line(d, 400)),
                 None => p.name.clone(),
@@ -312,6 +316,7 @@ mod tests {
         let permits = HashMap::from([(
             "p1".to_string(),
             vec![Permit {
+                id: "req1".into(),
                 agent_id: "p1".into(),
                 name: "Bash".into(),
                 description: Some("terraform apply".into()),

@@ -17,6 +17,7 @@ src/
 ├── model.rs             # Session, State, Attention, Snapshot (queue order)
 ├── config.rs            # ~/.config/oncue/config.toml
 ├── i18n.rs              # en/ko strings, age formatting
+├── actions.rs           # open, quick reply, permit allow, notifications
 ├── git.rs               # branch from HEAD without spawning git
 ├── issues.rs            # issue key matching, overlapping sessions
 ├── ui.rs                # ratatui drawing and selection
@@ -31,9 +32,9 @@ src/
 
 ## Rules
 
-- oncue is read-only toward agents. Never write to `~/.claude*`, `~/.paseo`, or
-  any other agent directory. Settings changes (for example a hook installer) must
-  be an explicit subcommand the user runs.
+- oncue never writes to `~/.claude*`, `~/.paseo`, or any other agent directory.
+  The only writes to agents are user-triggered Paseo CLI calls in
+  `src/actions.rs`, each behind a `y` confirmation. Do not add automatic writes.
 - Network access only with the user's own credentials (`gh` login, a Linear key
   from an env var or a user-configured command), on a background thread in the
   TUI, and switchable off in config. Keys stay in memory: never write, log, or

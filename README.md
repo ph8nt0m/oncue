@@ -57,7 +57,8 @@ usual way parallel agents collide.
 An idle session whose PR needs you moves up to the PR's reason. Your own
 recent open PRs with no live session behind them get their own rows.
 
-oncue is read-only. It never writes to agent state and needs no API keys; GitHub
+oncue only reads, except for the actions below, which go through the Paseo CLI
+after you confirm each one. It needs no API keys of its own; GitHub
 goes through your existing `gh` login, and Linear issue state is added when a
 Linear API key is available (see below).
 
@@ -76,7 +77,17 @@ oncue --json     # one JSON snapshot, for scripts
 oncue --lang ko  # UI language (en, ko); defaults to LANG
 ```
 
-Keys: `j`/`k` move, `g`/`G` first/last, `d` toggle dormant, `r` refresh, `q` quit.
+| Key | Action |
+|---|---|
+| `j`/`k`, `g`/`G` | move, first/last |
+| `Enter` | open the session in the Paseo app (deep link), or its PR in the browser |
+| `1`-`9` | send a quick reply (`replies` in config) to the selected Paseo agent, after `y` |
+| `a` | allow the selected session's pending permission request, after `y` |
+| `d` | show dormant sessions |
+| `r` / `q` | refresh / quit |
+
+While oncue runs, a desktop notification fires when a session starts needing a
+decision (question, permit, plan, merge, error), once per session and reason.
 
 ## Sources
 
@@ -98,6 +109,8 @@ claude_config_dirs = ["~/.claude-work"]
 paseo = true
 dormant_after_minutes = 360
 interval_secs = 2
+replies = ["go on", "approved", "continue"]   # keys 1-9
+notify = true
 usage_command = ""                 # see "Usage limits"
 usage_interval_secs = 120
 
@@ -135,8 +148,7 @@ a window passes 80%.
 
 ## Roadmap
 
-See [docs/design.md](docs/design.md). Next up: jumping to a session, quick
-replies, and notifications.
+See [docs/design.md](docs/design.md). Next up: release binaries and a demo mode.
 
 ## License
 
